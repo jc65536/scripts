@@ -1,0 +1,16 @@
+#!/bin/bash
+
+while true; do
+    read -p "$1 (y/n): "
+
+    : ${REPLY:=$2}
+
+    case ${REPLY,,} in
+        y | yes)
+            exit 0
+            ;;
+        n | no)
+            exit 1
+            ;;
+    esac
+done

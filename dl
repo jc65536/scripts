@@ -1,0 +1,107 @@
+#!/usr/bin/env python3
+
+###############################################################################
+#
+# Vimeo Video Downloader
+#
+# Vimeo videos are streamed using DASH, but the video player doesn't use a
+# media presentation description (MPD) file, so we can't use youtube-dl to
+# download it. Instead, it uses a file called master.json which records the
+# URLs of video segments. This script will download and combine the video and
+# audio segments, then create a single mp4 video.
+#
+# Usage
+#
+#   dl <ch> <master_url>
+#
+#   <ch>: A unique name for this video. The output files will be named
+#   combined-video-<ch>.m4s (the combined video segments),
+#   combined-audio-<ch>.m4s (the combined audio segments), and <ch>-video.mp4
+#   (the final video). This way you can run multiple instances without having
+#   to create subdirectories.
+#
+#   <master_url>: The URL to the master.json file. Find this URL by opening
+#   your browser's network monitor on the video page and searching for
+#   master.json.
+#
+# Notes
+#
+#   This will download the highest bitrate video by default.
+#
+#   The structure of the video segments is
+#
+#   init segment | optional index segment | data segment 1 | data segment 2 ...
+#
+#   Segments are simply concatenated as if using cat.
+#
+#   When there is an index segment, you can simply download the video directly
+#   by removing the query parameters that specify the byte range. These videos
+#   tend to be very low-res, however.
+#
+# Requirements
+#
+#   ffmpeg
+#
+# References
+#
+#   https://dashif-documents.azurewebsites.net/DASH-IF-IOP/master/DASH-IF-IOP.html#addressing-indexed
+#   https://ottverse.com/structure-of-an-mpeg-dash-mpd/
+#
+
+import json
+import os
+import sys
+import requests
+import base64
+import subprocess
+from operator import itemgetter
+from urllib.parse import urlparse, urljoin
+
+master_url = sys.argv[2]
+r = requests.get(master_url)
+data = json.loads(r.content)
+base_url = urljoin(master_url, data["base_url"])
+
+
+def max_bitrate(v: list):
+    return max(v, key=itemgetter("bitrate"))
+
+
+def get_segments(obj, filename: str):
+    obj_base_url = os.path.join(base_url, obj["base_url"])
+    urls = []
+    
+    # Index segment
+    if "index_segment" in obj:
+        urls += [os.path.join(obj_base_url, obj["index_segment"])]
+
+    # Data segments
+    for seg in obj["segments"]:
+        urls += [os.path.join(obj_base_url, seg["url"])]
+
+    size = len(urls)
+
+    with open(filename, "wb") as file:
+
+        # Init segment
+        file.write(base64.b64decode(obj["init_segment"]))
+
+        for i, url in enumerate(urls):
+            basename = os.path.basename(urlparse(url).path)
+            print(f"Downloading ({i + 1}/{size}): {basename}")
+            r = requests.get(url)
+            file.write(r.content)
+
+
+ch = sys.argv[1]
+
+video = max_bitrate(data["video"])
+print(f"Downloading video id {video['id']}")
+get_segments(video, f"combined-video-{ch}.m4s")
+
+audio = max_bitrate(data["audio"])
+print(f"Downloading audio id {audio['id']}")
+get_segments(audio, f"combined-audio-{ch}.m4s")
+
+subprocess.run(["ffmpeg", "-y", "-i", f"combined-video-{ch}.m4s",
+                "-i", f"combined-audio-{ch}.m4s", f"{ch}-video.mp4"])

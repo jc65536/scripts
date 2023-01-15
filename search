@@ -1,0 +1,9 @@
+#!/bin/bash
+
+for f in $(find . -type f); do
+    match=$(grep "$1" $f)
+    if [ -n "$match" ]; then
+        echo "== $f =="
+        echo "$match"
+    fi
+done

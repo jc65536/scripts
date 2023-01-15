@@ -1,0 +1,9 @@
+#!/bin/bash
+
+for i in {101..112}; do
+    ch="ch${i#1}"
+    read url
+    dl $ch "$url" &
+done
+
+wait
